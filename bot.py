@@ -1,4 +1,20 @@
 import os
+
+required_vars = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD"]
+
+for var in required_vars:
+    if os.getenv(var) is None:
+        raise ValueError(f"Переменная окружения {var} не найдена!")
+
+SMTP_HOST = os.getenv("SMTP_HOST")
+SMTP_PORT = int(os.getenv("SMTP_PORT"))  # тут точно будет строка, проверка выше гарантирует, что не None
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+
+
+
+
+import os
 import smtplib
 from email.mime.text import MIMEText
 
