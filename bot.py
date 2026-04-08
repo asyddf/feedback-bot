@@ -1,80 +1,88 @@
 import os
-
-required_vars = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD"]
-
-for var in required_vars:
-    if os.getenv(var) is None:
-        raise ValueError(f"Переменная окружения {var} не найдена!")
-
-SMTP_HOST = os.getenv("SMTP_HOST")
-SMTP_PORT = int(os.getenv("SMTP_PORT"))  # тут точно будет строка, проверка выше гарантирует, что не None
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-
-
-
-
-import os
+import asyncio
 import smtplib
 from email.mime.text import MIMEText
 
-from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 # Переменные окружения
-TOKEN = os.getenv("TOKEN")
-
-EMAIL_FROM = os.getenv("EMAIL_FROM")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+TOKEN = os.getenv("BOT_TOKEN")
+EMAIL_FROM = os.getenv("SMTP_USER")
+EMAIL_PASSWORD = os.getenv("SMTP_PASSWORD")
 EMAIL_TO = os.getenv("EMAIL_TO")
-
-SMTP_SERVER = os.getenv("SMTP_SERVER")
-SMTP_PORT = int(os.getenv("SMTP_PORT"))
+SMTP_SERVER = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 
 bot = Bot(token=TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
 
-# Функция отправки email
-def send_email(message_text):
-    msg = MIMEText(message_text)
-    msg['Subject'] = "Новое сообщение из Telegram бота"
-    msg['From'] = EMAIL_FROM
-    msg['To'] = EMAIL_TO
+# Главное меню
+menu = ReplyKeyboardMarkup(keyboard=[
+    [KeyboardButton(text="📚 Материалы")],
+    [KeyboardButton(text="💬 Обратная связь")],
+    [KeyboardButton(text="ℹ️ О нас")]
+], resize_keyboard=True)
 
+# Отправка email
+def send_email(text, user):
+    msg = MIMEText(f"От: {user}\n\n{text}", "plain", "utf-8")
+    msg["Subject"] = "Новое сообщение из Telegram бота"
+    msg["From"] = EMAIL_FROM
+    msg["To"] = EMAIL_TO
     try:
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(EMAIL_FROM, EMAIL_PASSWORD)
-        server.send_message(msg)
-        server.quit()
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(EMAIL_FROM, EMAIL_PASSWORD)
+            server.send_message(msg)
+        return True
     except Exception as e:
-        print("Ошибка отправки почты:", e)
+        print(f"Ошибка отправки: {e}")
+        return False
 
-
-# Команда старт
-@dp.message_handler(commands=['start'])
+# /start
+@dp.message(Command("start"))
 async def start(message: types.Message):
-    await message.reply(
-        "Привет! 👋\n\n"
-        "Напиши сообщение — оно придёт на почту.\n"
-        "Для материалов введи /content"
+    await message.answer(
+        "Привет! 👋\nВыбери нужный раздел:",
+        reply_markup=menu
     )
 
-# Раздел с материалами
-@dp.message_handler(commands=['content'])
-async def content(message: types.Message):
-    keyboard = types.InlineKeyboardMarkup(row_width=1)
-    keyboard.add(types.InlineKeyboardButton("📄 Статья", url="https://example.com"))
-    keyboard.add(types.InlineKeyboardButton("🎥 Видео", url="https://youtube.com"))
+# Материалы
+@dp.message(F.text == "📚 Материалы")
+async def materials(message: types.Message):
+    await message.answer(
+        "📚 Обучающие материалы:\n\n"
+        "Здесь будут ссылки на лекции и видеоуроки."
+    )
 
-    await message.reply("Выбирай материал:", reply_markup=keyboard)
+# О нас
+@dp.message(F.text == "ℹ️ О нас")
+async def about(message: types.Message):
+    await message.answer(
+        "Этот бот создан для ознакомления с дополнительными "
+        "материалами и обратной связи в виде жалоб и предложений. "
+        "Все сообщения автоматически отправляются на электронную почту."
+    )
 
-# Все сообщения → на почту
-@dp.message_handler()
+# Обратная связь
+@dp.message(F.text == "💬 Обратная связь")
+async def feedback_prompt(message: types.Message):
+    await message.answer("Напиши своё сообщение и я отправлю его:")
+
+# Все остальные сообщения → на почту
+@dp.message()
 async def forward_to_email(message: types.Message):
-    send_email(message.text)
-    await message.reply("Сообщение отправлено ✅")
+    user = f"{message.from_user.full_name} (@{message.from_user.username})"
+    ok = send_email(message.text, user)
+    if ok:
+        await message.answer("✅ Сообщение отправлено!")
+    else:
+        await message.answer("❌ Ошибка отправки. Попробуй позже.")
 
+async def main():
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    executor.start_polling(dp)
+    asyncio.run(main())
